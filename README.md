@@ -23,7 +23,7 @@ Este é um site estático para exibição de promoções e ofertas de programas 
 ## 📁 Estrutura do Projeto
 
 ```
-cacadordeofertas/
+promocoes-site/
 ├── index.html              # Página principal
 ├── css/
 │   ├── styles.css          # Estilos customizados
