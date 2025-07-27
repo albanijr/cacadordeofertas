@@ -8,7 +8,8 @@ class ProductRenderer {
      */
     static renderProduct(product) {
         const platformColorClass = Utils.getPlatformColorClass(product.plataforma);
-        const firstImage = product.imagens_base64[0] || Utils.getPlaceholderImage(300, 200);
+        const firstImage = product.imagens_base64[0];
+        const imageSrc = firstImage && firstImage.startsWith("data:image") ? firstImage : Utils.getPlaceholderImage(300, 200);
         const savings = product.preco_original - product.preco_promocional;
         
         // Generate rating stars
@@ -24,7 +25,7 @@ class ProductRenderer {
                 <!-- Image Container -->
                 <div class="relative">
                     <img 
-                        src="${firstImage}" 
+                        src="${imageSrc}" 
                         alt="${Utils.sanitizeHtml(product.titulo)}"
                         class="product-image w-full h-48 object-cover"
                         loading="lazy"
@@ -270,10 +271,13 @@ class ProductRenderer {
      */
     static renderProductModal(product) {
         const allImages = product.imagens_base64.length > 0 
-            ? product.imagens_base64 
-            : [Utils.getPlaceholderImage(400, 300)];
+            ? product.imagens_base64.filter(img => img && img.startsWith("data:image"))
+            : [];
         
-        const imageGallery = allImages.map((img, index) => `
+        // If no valid Base64 images, use placeholder
+        const imagesToShow = allImages.length > 0 ? allImages : [Utils.getPlaceholderImage(400, 300)];
+        
+        const imageGallery = imagesToShow.map((img, index) => `
             <img 
                 src="${img}" 
                 alt="${Utils.sanitizeHtml(product.titulo)} - Imagem ${index + 1}"
