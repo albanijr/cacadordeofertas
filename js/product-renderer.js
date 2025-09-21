@@ -7,40 +7,59 @@ class ProductRenderer {
      * @returns {string} HTML string for product card
      */
     static renderProduct(product) {
+        if (typeof Logger !== 'undefined') Logger.debug('Renderizando produto', { id: product.id, titulo: product.titulo });
+
         const platformColorClass = Utils.getPlatformColorClass(product.plataforma);
-        const firstImage = product.imagens_base64[0];
-        const imageSrc = firstImage && firstImage.startsWith("data:image") ? firstImage : Utils.getPlaceholderImage(300, 200);
-        const savings = product.preco_original - product.preco_promocional;
-        
+
+        // Escolhe primeira imagem válida entre imagens_base64 / imagens
+        const candidates = (product.imagens_base64 && product.imagens_base64.length) ? product.imagens_base64
+                        : (product.imagens && product.imagens.length) ? product.imagens
+                        : [];
+
+        let imageSrc = Utils.getPlaceholderImage(300, 200);
+        for (const c of candidates) {
+            const src = this.normalizeImageSrc(c);
+            if (src) {
+                imageSrc = src;
+                break;
+            }
+        }
+
+        const savings = (product.preco_original || 0) - (product.preco_promocional || 0);
+
         // Generate rating stars
-        const ratingStars = this.generateRatingStars(product.avaliacao);
-        
+        const ratingStars = this.generateRatingStars(product.avaliacao || 0);
+
         // Format niche badges
-        const nicheBadges = product.nichos.slice(0, 2).map(nicho => 
+        const nicheBadges = (product.nichos || []).slice(0, 2).map(nicho => 
             `<span class="niche-badge">${Utils.sanitizeHtml(nicho)}</span>`
         ).join('');
-        
+
         return `
             <div class="product-card bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden" data-product-id="${product.id}">
                 <!-- Image Container -->
                 <div class="relative">
                     <img 
                         src="${imageSrc}" 
-                        alt="${Utils.sanitizeHtml(product.titulo)}"
+                        alt="${Utils.sanitizeHtml(product.titulo || 'Produto')}"
                         class="product-image w-full h-48 object-cover"
                         loading="lazy"
                         onerror="this.src='${Utils.getPlaceholderImage(300, 200)}'"
                     >
                     
                     <!-- Discount Badge -->
-                    <div class="discount-badge absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-sm font-bold">
-                        -${product.desconto_percentual}%
-                    </div>
+                    ${product.desconto_percentual && Number(product.desconto_percentual) > 0 ? `
+                        <div class="discount-badge absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-sm font-bold">
+                            -${product.desconto_percentual}%
+                        </div>
+                    ` : (typeof Logger !== 'undefined' ? (Logger.debug('Badge de desconto omitida por valor ausente/zero', { id: product.id, desconto: product.desconto_percentual }) , '') : '')}
                     
                     <!-- Platform Badge -->
-                    <div class="platform-badge absolute top-2 right-2 ${platformColorClass} text-white px-2 py-1 rounded text-xs font-medium">
-                        ${Utils.sanitizeHtml(product.plataforma)}
-                    </div>
+                    ${product.plataforma && String(product.plataforma).trim() ? `
+                        <div class="platform-badge absolute top-2 right-2 ${platformColorClass} text-white px-2 py-1 rounded text-xs font-medium">
+                            ${Utils.sanitizeHtml(product.plataforma)}
+                        </div>
+                    ` : (typeof Logger !== 'undefined' ? (Logger.debug('Badge de plataforma omitida por valor ausente', { id: product.id }), '') : '')}
                     
                     <!-- Niche Badges -->
                     ${nicheBadges ? `
@@ -53,33 +72,33 @@ class ProductRenderer {
                 <!-- Content -->
                 <div class="product-content p-4">
                     <!-- Title -->
-                    <h3 class="product-title font-semibold text-gray-800 mb-2 line-clamp-2 h-12">
-                        ${Utils.sanitizeHtml(product.titulo)}
-                    </h3>
+                    ${product.titulo ? `<h3 class="product-title font-semibold text-gray-800 mb-2 line-clamp-2 h-12">${Utils.sanitizeHtml(product.titulo)}</h3>`
+                     : (typeof Logger !== 'undefined' ? (Logger.debug('Título omitido na renderização por valor ausente', { id: product.id }), '') : '')}
                     
                     <!-- Description -->
-                    <p class="product-description text-gray-600 text-sm mb-3 line-clamp-2 h-10">
-                        ${Utils.sanitizeHtml(product.descricao)}
-                    </p>
+                    ${product.descricao ? `<p class="product-description text-gray-600 text-sm mb-3 line-clamp-2 h-10">${Utils.sanitizeHtml(product.descricao)}</p>`
+                     : (typeof Logger !== 'undefined' ? (Logger.debug('Descrição omitida na renderização por valor ausente', { id: product.id }), '') : '')}
                     
                     <!-- Prices -->
-                    <div class="price-container mb-3">
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="price-current text-2xl font-bold text-green-600">
-                                ${Utils.formatCurrency(product.preco_promocional)}
-                            </span>
-                            ${product.preco_original > product.preco_promocional ? `
-                                <span class="price-original text-sm text-gray-500 line-through">
-                                    ${Utils.formatCurrency(product.preco_original)}
+                    ${product.preco_promocional && Number(product.preco_promocional) > 0 ? `
+                        <div class="price-container mb-3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="price-current text-2xl font-bold text-green-600">
+                                    ${Utils.formatCurrency(product.preco_promocional)}
                                 </span>
+                                ${product.preco_original && product.preco_original > product.preco_promocional ? `
+                                    <span class="price-original text-sm text-gray-500 line-through">
+                                        ${Utils.formatCurrency(product.preco_original)}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            ${savings > 0 ? `
+                                <div class="price-savings text-sm text-green-600 font-medium">
+                                    Economia de ${Utils.formatCurrency(savings)}
+                                </div>
                             ` : ''}
                         </div>
-                        ${savings > 0 ? `
-                            <div class="price-savings text-sm text-green-600 font-medium">
-                                Economia de ${Utils.formatCurrency(savings)}
-                            </div>
-                        ` : ''}
-                    </div>
+                    ` : (typeof Logger !== 'undefined' ? (Logger.debug('Bloco de preço omitido por preco_promocional ausente/zero', { id: product.id, preco_promocional: product.preco_promocional }), '') : '')}
                     
                     <!-- Rating and Sales -->
                     ${product.avaliacao > 0 || product.vendas > 0 ? `
@@ -87,7 +106,7 @@ class ProductRenderer {
                             ${product.avaliacao > 0 ? `
                                 <div class="flex items-center">
                                     ${ratingStars}
-                                    <span class="ml-1">${product.avaliacao.toFixed(1)}</span>
+                                    <span class="ml-1">${(product.avaliacao || 0).toFixed(1)}</span>
                                 </div>
                             ` : '<div></div>'}
                             ${product.vendas > 0 ? `
@@ -99,12 +118,11 @@ class ProductRenderer {
                     <!-- Action Button -->
                     <a 
                         href="${product.link_afiliado}" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        class="btn-primary block w-full bg-blue-600 text-white text-center py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                        onclick="Utils.trackClick('${product.id}', '${product.plataforma}')"
+                        ${product.link_afiliado ? `target="_blank" rel="noopener noreferrer"` : ''}
+                        class="btn-primary block w-full bg-blue-600 text-white text-center py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium ${!product.link_afiliado ? 'opacity-60 pointer-events-none' : ''}"
+                        onclick="${product.id && product.plataforma ? `Utils.trackClick('${product.id}', '${product.plataforma}')` : ''}"
                     >
-                        Ver Oferta
+                        ${product.link_afiliado ? 'Ver Oferta' : 'Link indisponível'}
                         <i data-lucide="external-link" class="w-4 h-4 inline ml-1"></i>
                     </a>
                 </div>
@@ -156,9 +174,11 @@ class ProductRenderer {
         
         if (products.length === 0) {
             container.innerHTML = this.renderEmptyState();
+            if (typeof Logger !== 'undefined') Logger.info('Render grid vazio', { containerId });
             return;
         }
         
+        if (typeof Logger !== 'undefined') Logger.info('Renderizando grid', { containerId, count: products.length });
         container.innerHTML = products.map(product => this.renderProduct(product)).join('');
         
         // Re-initialize Lucide icons for new content
@@ -270,22 +290,24 @@ class ProductRenderer {
      * @returns {string} HTML string for product modal
      */
     static renderProductModal(product) {
-        const allImages = product.imagens_base64.length > 0 
-            ? product.imagens_base64.filter(img => img && img.startsWith("data:image"))
-            : [];
-        
-        // If no valid Base64 images, use placeholder
-        const imagesToShow = allImages.length > 0 ? allImages : [Utils.getPlaceholderImage(400, 300)];
-        
-        const imageGallery = imagesToShow.map((img, index) => `
+        // normaliza todas as imagens para srcs utilizáveis
+        const rawImages = (product.imagens_base64 && product.imagens_base64.length) ? product.imagens_base64
+                        : (product.imagens && product.imagens.length) ? product.imagens
+                        : [];
+
+        const imagesToShow = rawImages.map(img => this.normalizeImageSrc(img)).filter(Boolean);
+        const finalImages = imagesToShow.length ? imagesToShow : [Utils.getPlaceholderImage(400, 300)];
+
+        const imageGallery = finalImages.map((img, index) => `
             <img 
                 src="${img}" 
                 alt="${Utils.sanitizeHtml(product.titulo)} - Imagem ${index + 1}"
                 class="w-full h-64 object-cover rounded-lg cursor-pointer"
                 onclick="this.requestFullscreen()"
+                onerror="this.src='${Utils.getPlaceholderImage(400,300)}'"
             >
         `).join('');
-        
+
         return `
             <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="this.remove()">
                 <div class="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
@@ -349,7 +371,7 @@ class ProductRenderer {
                                         ${product.avaliacao > 0 ? `
                                             <div class="flex items-center">
                                                 ${this.generateRatingStars(product.avaliacao)}
-                                                <span class="ml-2 font-medium">${product.avaliacao.toFixed(1)}</span>
+                                                <span class="ml-2 font-medium">${(product.avaliacao || 0).toFixed(1)}</span>
                                             </div>
                                         ` : '<div></div>'}
                                         ${product.vendas > 0 ? `
@@ -409,6 +431,7 @@ class ProductRenderer {
      * @param {Object} product - Product data
      */
     static showProductModal(product) {
+        if (typeof Logger !== 'undefined') Logger.debug('Abrindo modal produto', { id: product.id, titulo: product.titulo });
         const modal = document.createElement('div');
         modal.innerHTML = this.renderProductModal(product);
         document.body.appendChild(modal.firstElementChild);
@@ -417,6 +440,31 @@ class ProductRenderer {
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
+    }
+    
+    // Helper: normaliza string de imagem para um src utilizável
+    static normalizeImageSrc(imgStr) {
+        if (!imgStr) return null;
+        const s = String(imgStr).trim();
+
+        // Já é data URI
+        if (s.startsWith('data:')) return s;
+
+        // URL absoluta (http/https)
+        if (/^https?:\/\//i.test(s)) return s;
+
+        // Se parece com "mime-type;base64,..." (ex: image/png;base64,...)
+        if (/^[a-z0-9\/\-\+]+;base64,/i.test(s)) {
+            return `data:${s}`;
+        }
+
+        // Se for base64 "puro" (muito longo sem espaços), assumir PNG
+        if (/^[A-Za-z0-9+/=\s]{100,}$/.test(s)) {
+            return `data:image/png;base64,${s.replace(/\s+/g, '')}`;
+        }
+
+        // fallback: se contém ',' e sem https, pode ser lista — deixar para ser tratado externamente
+        return s;
     }
 }
 

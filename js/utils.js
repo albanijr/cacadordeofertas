@@ -186,6 +186,13 @@ function showNotification(message, type = 'info', duration = 3000) {
             notification.remove();
         }
     }, duration);
+
+    // Logger
+    if (typeof Logger !== 'undefined') {
+        if (type === 'error') Logger.error('Notification exibida', { message, type, duration });
+        else if (type === 'warn') Logger.warn('Notification exibida', { message, type, duration });
+        else Logger.info('Notification exibida', { message, type, duration });
+    }
 }
 
 /**
@@ -203,6 +210,9 @@ function scrollToElement(elementId, offset = 0) {
             top: offsetPosition,
             behavior: 'smooth'
         });
+
+        // Logger
+        if (typeof Logger !== 'undefined') Logger.info('scrollToElement chamado', { elementId, offset });
     }
 }
 
@@ -226,6 +236,7 @@ function isInViewport(element) {
  * @param {string} selector - CSS selector for images to lazy load
  */
 function lazyLoadImages(selector = 'img[data-src]') {
+    if (typeof Logger !== 'undefined') Logger.info('Iniciando lazyLoadImages', { selector });
     const images = document.querySelectorAll(selector);
     
     const imageObserver = new IntersectionObserver((entries, observer) => {
@@ -235,6 +246,9 @@ function lazyLoadImages(selector = 'img[data-src]') {
                 img.src = img.dataset.src;
                 img.classList.remove('lazy');
                 imageObserver.unobserve(img);
+
+                // Logger
+                if (typeof Logger !== 'undefined') Logger.info('Imagem carregada', { src: img.src });
             }
         });
     });
@@ -281,6 +295,7 @@ function removeQueryParam(param) {
 async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
+        if (typeof Logger !== 'undefined') Logger.info('Texto copiado para clipboard', { textLength: String(text).length });
         return true;
     } catch (err) {
         // Fallback for older browsers
@@ -295,6 +310,7 @@ async function copyToClipboard(text) {
             return true;
         } catch (err) {
             document.body.removeChild(textArea);
+            if (typeof Logger !== 'undefined') Logger.error('Falha ao copiar para clipboard', { error: String(err) });
             return false;
         }
     }
@@ -307,20 +323,24 @@ async function copyToClipboard(text) {
  * @param {string} action - Action type
  */
 function trackClick(productId, platform, action = 'click') {
-    // Google Analytics tracking
-    if (typeof gtag !== 'undefined') {
-        gtag('event', action, {
-            event_category: 'product',
-            event_label: platform,
-            value: productId
-        });
+    try {
+        // Google Analytics tracking
+        if (typeof gtag !== 'undefined') {
+            gtag('event', action, {
+                event_category: 'product',
+                event_label: platform,
+                value: productId
+            });
+        }
+        
+        // Console log for debugging
+        console.log(`Product ${action}: ${productId} (${platform})`);
+
+        // Logger
+        if (typeof Logger !== 'undefined') Logger.info('Click rastreado', { productId, platform, action });
+    } catch (e) {
+        if (typeof Logger !== 'undefined') Logger.error('Erro em trackClick', { error: String(e) });
     }
-    
-    // Console log for debugging
-    console.log(`Product ${action}: ${productId} (${platform})`);
-    
-    // You can add other analytics services here
-    // Example: Facebook Pixel, Hotjar, etc.
 }
 
 /**
