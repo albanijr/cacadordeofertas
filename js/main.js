@@ -41,21 +41,233 @@ class PromotionsApp {
     }
     
     /**
-     * Load products from CSV
+     * Load products from SQLite (sql.js) — sem fallback para CSV
+     * Agora tenta múltiplos nomes de arquivo em data/ e fornece logs detalhados
      */
     async loadProducts() {
         try {
-            this.products = await CSVParser.loadProducts();
+            // Possíveis caminhos do arquivo SQLite (prioridade)
+            const candidatePaths = [
+                'data/produtos.db'
+            ];
+
+            // Ensure sql.js is initialized
+            const SQL = await ensureInitSqlJs();
+
+            let resp = null;
+            let usedPath = null;
+            const errors = [];
+
+            // Tentar encontrar um arquivo válido
+            for (const p of candidatePaths) {
+                try {
+                    console.info(`Tentando carregar SQLite em: ${p}`);
+                    const r = await fetch(p);
+                    if (r.ok) {
+                        resp = r;
+                        usedPath = p;
+                        console.info(`Encontrado arquivo SQLite em: ${p}`);
+                        break;
+                    } else {
+                        errors.push({ path: p, status: r.status, statusText: r.statusText });
+                        console.warn(`Arquivo não disponível em ${p} (status ${r.status})`);
+                    }
+                } catch (fetchErr) {
+                    errors.push({ path: p, error: String(fetchErr) });
+                    console.warn(`Erro ao tentar fetch ${p}:`, fetchErr);
+                }
+            }
+
+            if (!resp) {
+                console.error('Nenhum arquivo SQLite encontrado. Tentativas:', errors);
+                const tried = candidatePaths.join(', ');
+                this.showError(`Arquivo de dados não encontrado. Foram tentados: ${tried}`);
+                // Mantém produtos vazios e atualiza UI
+                this.products = [];
+                this.filtersManager.setProducts(this.products);
+                this.lastUpdateTime = null;
+                this.updateLastUpdateDisplay();
+                return;
+            }
+
+            // Carrega DB a partir do arquivo encontrado
+            const buffer = await resp.arrayBuffer();
+            const db = new SQL.Database(new Uint8Array(buffer));
+
+            // Possíveis nomes de tabela (priorizar 'produtos' conforme sua imagem)
+            const tableCandidates = ['produtos', 'products'];
+
+            // Encontrar tabela válida usando PRAGMA table_info
+            let foundTable = null;
+            for (const t of tableCandidates) {
+                try {
+                    const pragma = db.exec(`PRAGMA table_info('${t}')`);
+                    if (pragma && pragma.length > 0 && pragma[0].values && pragma[0].values.length > 0) {
+                        foundTable = t;
+                        console.info(`Tabela encontrada: ${t}`);
+                        break;
+                    }
+                } catch (err) {
+                    // ignora e tenta próxima
+                }
+            }
+
+            // Se nenhuma das tabelas esperadas existir, tentar identificar a primeira tabela do DB
+            if (!foundTable) {
+                try {
+                    const tablesRes = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+                    if (tablesRes && tablesRes.length && tablesRes[0].values.length) {
+                        foundTable = tablesRes[0].values[0][0]; // primeiro nome de tabela
+                        console.warn(`Nenhuma tabela esperada encontrada; usando primeira tabela detectada: ${foundTable}`);
+                    }
+                } catch (err) {
+                    // nada
+                }
+            }
+
+            if (!foundTable) {
+                throw new Error('Nenhuma tabela válida encontrada no banco de dados SQLite.');
+            }
+
+            // Expected columns (em português conforme sua imagem)
+            const expectedCols = [
+                'id','titulo','descricao','preco_original','preco_promocional','desconto_percentual',
+                'link_afiliado','imagens_base64','categoria_principal','nichos','plataforma','avaliacao',
+                'vendas','data_inicio_promocao','data_fim_promocao','data_publicacao','status'
+            ];
+
+            // Inspeciona colunas existentes na tabela encontrada
+            let existingCols = [];
+            try {
+                const pragma = db.exec(`PRAGMA table_info('${foundTable}')`);
+                if (pragma && pragma.length > 0) {
+                    // pragma[0].values: cada entrada [cid, name, type, notnull, dflt_value, pk]
+                    existingCols = pragma[0].values.map(r => r[1]);
+                }
+            } catch (pErr) {
+                console.warn('PRAGMA table_info falhou. Tentando prosseguir.', pErr);
+            }
+
+            const colsToSelect = expectedCols.filter(c => existingCols.length === 0 ? true : existingCols.includes(c));
+            if (colsToSelect.length === 0) {
+                throw new Error(`Nenhuma coluna esperada encontrada em ${foundTable}. Verifique o esquema do banco de dados.`);
+            }
+
+            const query = `SELECT ${colsToSelect.join(', ')} FROM "${foundTable}"`;
+            const result = db.exec(query);
+
+            if (!result || result.length === 0) {
+                throw new Error('Consulta SQLite retornou vazia. Verifique o conteúdo do banco de dados.');
+            }
+
+            const cols = result[0].columns;
+            const values = result[0].values;
+
+            console.info(`Colunas carregadas do SQLite (${foundTable}):`, cols);
+            const missing = expectedCols.filter(c => !cols.includes(c));
+            if (missing.length) console.info('Colunas ausentes (não obrigatórias):', missing);
+
+            // Map rows to product objects and normalize fields
+            this.products = values.map(row => {
+                const obj = {};
+                cols.forEach((c, i) => obj[c] = row[i]);
+
+                // Normalizações (mesma forma esperada pela aplicação)
+                obj.id = ('id' in obj) ? String(obj.id) : '';
+                if (!obj.id && typeof Logger !== 'undefined') Logger.debug('Campo ausente ao normalizar produto', { field: 'id', row: row });
+                
+                obj.titulo = obj.titulo || '';
+                if (!obj.titulo && typeof Logger !== 'undefined') Logger.debug('Campo ausente ao normalizar produto', { id: obj.id, field: 'titulo' });
+
+                obj.descricao = obj.descricao || '';
+                if (!obj.descricao && typeof Logger !== 'undefined') Logger.debug('Campo ausente ao normalizar produto', { id: obj.id, field: 'descricao' });
+
+                obj.link_afiliado = obj.link_afiliado || '';
+                if (!obj.link_afiliado && typeof Logger !== 'undefined') Logger.debug('Campo ausente ao normalizar produto', { id: obj.id, field: 'link_afiliado' });
+
+                obj.categoria_principal = obj.categoria_principal || 'Outros';
+                obj.plataforma = obj.plataforma || '';
+                if (!obj.plataforma && typeof Logger !== 'undefined') Logger.debug('Campo ausente ao normalizar produto', { id: obj.id, field: 'plataforma' });
+
+                obj.status = obj.status || '';
+
+                obj.preco_original = ('preco_original' in obj && obj.preco_original !== null) ? Number(obj.preco_original) : 0;
+                obj.preco_promocional = ('preco_promocional' in obj && obj.preco_promocional !== null) ? Number(obj.preco_promocional) : 0;
+                if (!obj.preco_promocional && typeof Logger !== 'undefined') Logger.debug('Campo ausente ou zero ao normalizar produto', { id: obj.id, field: 'preco_promocional' });
+
+                obj.desconto_percentual = ('desconto_percentual' in obj && obj.desconto_percentual !== null) ? Number(obj.desconto_percentual) : 0;
+                obj.avaliacao = ('avaliacao' in obj && obj.avaliacao !== null) ? Number(obj.avaliacao) : 0;
+                obj.vendas = ('vendas' in obj && obj.vendas !== null) ? Number(obj.vendas) : 0;
+
+                // Imagens -> aceitar JSON array, pipe/comma-separated, URL, data URI ou base64 puro
+                let imagesArr = [];
+                if ('imagens_base64' in obj && obj.imagens_base64) {
+                    try {
+                        if (typeof obj.imagens_base64 === 'string') {
+                            const trimmed = obj.imagens_base64.trim();
+                            // tenta JSON
+                            if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || trimmed.startsWith('{"')) {
+                                const parsed = JSON.parse(trimmed);
+                                imagesArr = Array.isArray(parsed) ? parsed : [];
+                            } else {
+                                // fallback em separadores
+                                imagesArr = trimmed.includes('|') ? trimmed.split('|') : (trimmed.includes(',') ? trimmed.split(',') : [trimmed]);
+                            }
+                        } else if (Array.isArray(obj.imagens_base64)) {
+                            imagesArr = obj.imagens_base64;
+                        } else {
+                            imagesArr = [String(obj.imagens_base64)];
+                        }
+                    } catch (e) {
+                        const s = String(obj.imagens_base64);
+                        imagesArr = s.includes('|') ? s.split('|') : (s.includes(',') ? s.split(',') : [s]);
+                    }
+                }
+                obj.imagens_base64 = imagesArr.map(s => String(s).trim()).filter(Boolean);
+                if (obj.imagens_base64.length === 0 && typeof Logger !== 'undefined') Logger.debug('Produto sem imagens', { id: obj.id });
+
+                // manter compatibilidade com 'imagens'
+                obj.imagens = obj.imagens_base64.slice();
+
+                // Nichos -> array
+                if ('nichos' in obj && obj.nichos) {
+                    if (Array.isArray(obj.nichos)) {
+                        obj.nichos = obj.nichos.map(n => String(n).trim()).filter(Boolean);
+                    } else {
+                        obj.nichos = String(obj.nichos).split(',').map(n => n.trim()).filter(Boolean);
+                    }
+                } else {
+                    obj.nichos = [];
+                    if (typeof Logger !== 'undefined') Logger.debug('Produto sem nichos', { id: obj.id });
+                }
+
+                // Datas
+                ['data_inicio_promocao', 'data_fim_promocao', 'data_publicacao'].forEach(k => {
+                    if (k in obj) {
+                        obj[k] = obj[k] ? new Date(obj[k]) : null;
+                    } else {
+                        obj[k] = null;
+                    }
+                });
+
+                return obj;
+            });
+
             this.filtersManager.setProducts(this.products);
-            
-            // Update last update time
+
+            // Atualiza hora da última atualização
             this.lastUpdateTime = new Date();
             this.updateLastUpdateDisplay();
-            
-            console.log(`Loaded ${this.products.length} products`);
+
+            console.log(`Loaded ${this.products.length} products from SQLite (file: ${usedPath}, table: ${foundTable})`);
         } catch (error) {
             console.error('Error loading products:', error);
-            throw error;
+            this.showError('Erro ao carregar produtos do banco de dados SQLite. Verifique se o arquivo e a tabela "produtos" estão presentes e acessíveis.');
+            // Mantém produtos vazios para evitar comportamento inesperado
+            this.products = [];
+            this.filtersManager.setProducts(this.products);
+            this.lastUpdateTime = null;
+            this.updateLastUpdateDisplay();
         }
     }
     
@@ -392,14 +604,51 @@ class PromotionsApp {
     }
 }
 
+/*
+  Helper: garante que initSqlJs esteja disponível e inicializa-o,
+  apontando locateFile para o .wasm no CDN (evita erro "initSqlJs não encontrado").
+*/
+async function ensureInitSqlJs() {
+	// Versão do sql.js a usar no CDN
+	const SQLJS_VERSION = '1.6.2';
+	const wasmUrl = `https://cdnjs.cloudflare.com/ajax/libs/sql.js/${SQLJS_VERSION}/sql-wasm.wasm`;
+	const scriptUrl = `https://cdnjs.cloudflare.com/ajax/libs/sql.js/${SQLJS_VERSION}/sql-wasm.js`;
+
+	// Se já estiver presente, retorna a instância
+	if (typeof initSqlJs === 'function') {
+		return initSqlJs({ locateFile: () => wasmUrl });
+	}
+
+	// Carrega o script dinamicamente e aguarda
+	await new Promise((resolve, reject) => {
+		const s = document.createElement('script');
+		s.src = scriptUrl;
+		s.async = true;
+		s.onload = () => resolve();
+		s.onerror = (e) => reject(new Error('Falha ao carregar sql-wasm.js do CDN: ' + e));
+		document.head.appendChild(s);
+	});
+
+	// Depois de carregado, inicializa apontando para o .wasm no CDN
+	if (typeof initSqlJs !== 'function') {
+		throw new Error('initSqlJs não está disponível após o carregamento do script sql-wasm.js.');
+	}
+	return initSqlJs({ locateFile: () => wasmUrl });
+}
+
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Lucide icons
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
+    // Inicializa Logger primeiro
+    if (typeof Logger !== 'undefined') {
+        Logger.init({ maxEntries: 2000, cleanOldLogsDays: 30 });
+        Logger.info('DOM loaded - iniciando aplicação');
     }
-    
-    // Create global app instance
+     // Initialize Lucide icons
+     if (typeof lucide !== 'undefined') {
+         lucide.createIcons();
+     }
+     
+     // Create global app instance
     window.promotionsApp = new PromotionsApp();
 });
 
@@ -419,19 +668,49 @@ if ('serviceWorker' in navigator) {
 // Global error handler
 window.addEventListener('error', (e) => {
     console.error('Global error:', e.error);
-    if (window.promotionsApp) {
-        window.promotionsApp.showError('Ocorreu um erro inesperado. Recarregue a página se o problema persistir.');
+    if (typeof Logger !== 'undefined') {
+        Logger.error('Global error', { message: e.message, stack: e.error && e.error.stack ? e.error.stack : null });
     }
-});
+     if (window.promotionsApp) {
+         window.promotionsApp.showError('Ocorreu um erro inesperado. Recarregue a página se o problema persistir.');
+     }
+ });
 
 // Unhandled promise rejection handler
 window.addEventListener('unhandledrejection', (e) => {
     console.error('Unhandled promise rejection:', e.reason);
-    e.preventDefault();
-    if (window.promotionsApp) {
-        window.promotionsApp.showError('Erro de conexão. Verifique sua internet e tente novamente.');
+    if (typeof Logger !== 'undefined') {
+        Logger.error('Unhandled promise rejection', { reason: e.reason });
     }
-});
+     e.preventDefault();
+     if (window.promotionsApp) {
+         window.promotionsApp.showError('Erro de conexão. Verifique sua internet e tente novamente.');
+     }
+ });
+
+// Export for debugging
+window.PromotionsApp = PromotionsApp;
+window.addEventListener('error', (e) => {
+    console.error('Global error:', e.error);
+    if (typeof Logger !== 'undefined') {
+        Logger.error('Global error', { message: e.message, stack: e.error && e.error.stack ? e.error.stack : null });
+    }
+     if (window.promotionsApp) {
+         window.promotionsApp.showError('Ocorreu um erro inesperado. Recarregue a página se o problema persistir.');
+     }
+ });
+
+// Unhandled promise rejection handler
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('Unhandled promise rejection:', e.reason);
+    if (typeof Logger !== 'undefined') {
+        Logger.error('Unhandled promise rejection', { reason: e.reason });
+    }
+     e.preventDefault();
+     if (window.promotionsApp) {
+         window.promotionsApp.showError('Erro de conexão. Verifique sua internet e tente novamente.');
+     }
+ });
 
 // Export for debugging
 window.PromotionsApp = PromotionsApp;

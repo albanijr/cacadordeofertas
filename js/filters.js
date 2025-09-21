@@ -68,6 +68,8 @@ class FiltersManager {
     setProducts(products) {
         this.allProducts = products;
         this.applyFilters();
+        this.products = products || [];
+		if (typeof Logger !== 'undefined') Logger.info('FiltersManager.setProducts', { count: this.products.length });
     }
     
     /**
@@ -86,6 +88,8 @@ class FiltersManager {
         } else {
             Utils.removeQueryParam(filterType);
         }
+		this.filters[filterType] = value;
+		if (typeof Logger !== 'undefined') Logger.info('Filter atualizado', { key: filterType, value });
     }
     
     /**
@@ -306,6 +310,8 @@ class FiltersManager {
         
         this.applyFilters();
         Utils.showNotification('Filtros limpos', 'info', 2000);
+		this.filters = {};
+		if (typeof Logger !== 'undefined') Logger.info('Todos os filtros limpos');
     }
     
     /**
@@ -333,6 +339,35 @@ class FiltersManager {
         // Apply filters
         this.currentFilters = urlFilters;
         this.applyFilters();
+		if (typeof Logger !== 'undefined') Logger.info('FiltersManager.loadFiltersFromURL', { url: window.location.href });
+    }
+    
+    /**
+     * Export filtered products data
+     * @param {string} format - Export format (json, csv)
+     * @returns {string} Exported data
+     */
+    exportFilteredProducts(format = 'json') {
+        if (format === 'csv') {
+            const headers = ['Título', 'Descrição', 'Preço Original', 'Preço Promocional', 'Desconto', 'Plataforma', 'Categoria', 'Link'];
+            const rows = this.filteredProducts.map(product => [
+                product.titulo,
+                product.descricao,
+                product.preco_original,
+                product.preco_promocional,
+                `${product.desconto_percentual}%`,
+                product.plataforma,
+                product.categoria_principal,
+                product.link_afiliado
+            ]);
+            
+            return [headers, ...rows].map(row => 
+                row.map(cell => `"${cell}"`).join(',')
+            ).join('\n');
+        }
+        
+        return JSON.stringify(this.filteredProducts, null, 2);
+		if (typeof Logger !== 'undefined') Logger.info('Exportando produtos filtrados', { format, count: /*...computed count...*/ 0 });
     }
     
     /**
@@ -367,39 +402,14 @@ class FiltersManager {
             activeFilters.push(`Ordenação: ${sortLabels[this.currentFilters.sort]}`);
         }
         
-        return {
+        const summary = {
             activeFilters,
             totalProducts: this.allProducts.length,
             filteredProducts: this.filteredProducts.length,
             hasActiveFilters: activeFilters.length > 0
         };
-    }
-    
-    /**
-     * Export filtered products data
-     * @param {string} format - Export format (json, csv)
-     * @returns {string} Exported data
-     */
-    exportFilteredProducts(format = 'json') {
-        if (format === 'csv') {
-            const headers = ['Título', 'Descrição', 'Preço Original', 'Preço Promocional', 'Desconto', 'Plataforma', 'Categoria', 'Link'];
-            const rows = this.filteredProducts.map(product => [
-                product.titulo,
-                product.descricao,
-                product.preco_original,
-                product.preco_promocional,
-                `${product.desconto_percentual}%`,
-                product.plataforma,
-                product.categoria_principal,
-                product.link_afiliado
-            ]);
-            
-            return [headers, ...rows].map(row => 
-                row.map(cell => `"${cell}"`).join(',')
-            ).join('\n');
-        }
-        
-        return JSON.stringify(this.filteredProducts, null, 2);
+		if (typeof Logger !== 'undefined') Logger.info('FiltersManager.getFilterSummary', { summary });
+        return summary;
     }
 }
 

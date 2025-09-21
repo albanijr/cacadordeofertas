@@ -249,11 +249,13 @@
 
     <!-- Scripts -->
     <script src="js/utils.js"></script>
-    <script src="js/csv-parser.js"></script>
+    <script src="js/logger.js"></script>
     <script src="js/product-renderer.js"></script>
     <script src="js/filters.js"></script>
+    <!-- optional: carregamento do sql.js antes do main (main.js também faz carregamento dinâmico via ensureInitSqlJs) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js" integrity="" crossorigin="anonymous"></script>
     <script src="js/main.js"></script>
-    
+
     <!-- Initialize Lucide Icons -->
     <script>
         lucide.createIcons();

@@ -1,3 +1,6 @@
+// ATENÇÃO: CSV Parser marcado como obsoleto — o projeto agora utiliza exclusivamente SQLite como fonte de produtos.
+// Este arquivo pode ser removido em versões futuras.
+
 // CSV Parser for loading and processing product data
 
 class CSVParser {
@@ -7,13 +10,17 @@ class CSVParser {
      */
     static async loadProducts() {
         try {
+            if (typeof Logger !== 'undefined') Logger.info('CSVParser.loadProducts iniciado', { url: 'Google Sheets CSV' });
             const response = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRAJCC7mpCFoAgZxCXojqj49uKqEMz1kNXTJmzTpUcgJp81mOwU7MlonIUWgaFzohGdW2Af4h6OQ1YL/pub?gid=0&single=true&output=csv');
             if (!response.ok) {
+                if (typeof Logger !== 'undefined') Logger.warn('CSV fetch retornou não ok', { status: response.status });
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const csvText = await response.text();
+            if (typeof Logger !== 'undefined') Logger.info('CSV carregado, iniciando parse', { length: csvText.length });
             return this.parseCSV(csvText);
         } catch (error) {
+            if (typeof Logger !== 'undefined') Logger.error('CSVParser.loadProducts falhou', { error: String(error) });
             console.error('Erro ao carregar produtos:', error);
             // Return sample data for demonstration
             return this.getSampleData();
@@ -379,6 +386,6 @@ class CSVParser {
     }
 }
 
-// Export for use in other modules
+// Export for compatibility (não utilizado)
 window.CSVParser = CSVParser;
 
